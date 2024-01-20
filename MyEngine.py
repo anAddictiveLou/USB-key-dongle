@@ -36,13 +36,6 @@ isProcRun          = False
 appPID             = None
 supervisorPID      = None
 
-def sigHandler(signum, frame):
-    global Proc
-    print("Received SIGINT signal. Cleaning up...")
-    signame = signal.Signals(signum).name
-    remove(decryptedFile)
-    sys.exit(0)
-
 def isEncryptedFile(filePath):
     _, file_extension = os.path.splitext(filePath)
     return file_extension.lower() == '.aes'
@@ -113,31 +106,32 @@ def startAppHandle():
         supervisorPID = os.fork()
         if supervisorPID > 0:
             # main process
-            print("I am main process:")
             print("main PID:", os.getpid())
             print("Child's process - supervisor PID:", supervisorPID)
             appPID = os.fork()
             if appPID > 0:
                 # still main process
-                print("I am main process:")
-                print("main ID:", os.getpid())
+                print("main PID:", os.getpid())
                 print("Child's process - app PID:", appPID)
+                while True:
+                    pass
             else:
                 # app process
-                print("I am app process:")
-                print("app ID:", os.getpid())
+                print("app PID:", os.getpid())
                 print("Parent's process ID:", os.getppid())
                 os.execl(decryptedFileRunPath, decryptedFileRunPath)
         else:
             # supervisor process
-            print("I am supervisor process:")
-            print("super ID:", os.getpid())
+            print("super PID:", os.getpid())
             print("Parent's process ID:", os.getppid())
-    while True:
-        pass
+            while True:
+                pass
+    
+    elif platform.system() == "Windows":        
+        print("Windows")
+
 
 def coreRun():
-    signal.signal(signal.SIGINT, sigHandler)
     state = START_APP
     while state != FINISH:
         if state == INTERGRITY_VERIFY:

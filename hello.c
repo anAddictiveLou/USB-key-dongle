@@ -4,10 +4,8 @@
 
 int main()
 {
-    while (1)
-    {
-        printf("Hello from Ubuntu ....\n");
-    }
+    printf("Hello from Ubuntu ....\n");
+    while (1);
     
     return 0;
 }
