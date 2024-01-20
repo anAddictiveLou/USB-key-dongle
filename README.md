@@ -1,1 +1,1 @@
-# USB-key-dongle
+# This is my graduation thesis project.
