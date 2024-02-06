@@ -4,10 +4,12 @@ import signal
 import io
 from os import stat, remove
 from multiprocessing import Process
+import multiprocessing as mp
 import subprocess
 import pyAesCrypt
 import hid
 import platform
+import psutil
 import tkinter as tk
 from tkinter import messagebox
 
@@ -25,17 +27,29 @@ APP_RUNNING        = 5
 ABNORMAL_BEHAVIOR  = 6
 FINISH             = 7
 
-# intergrity verify
+# intergrity verify states
 
+# define
 SUCCESS            = 0
 FAIL               = -1
 bufferSize         = 64 * 1024
 encryptedFile      = None
 decryptedFile      = None
 isProcRun          = False
-appPID             = None
-supervisorPID      = None
+userProc           = None
 
+# child process function
+def supervisorProcRun():
+    print("Supervisor PID = ", os.getpid())
+    while True:
+        pass
+        
+def userProcRun():
+    print("User PID = ", os.getpid())
+    while True:
+        pass
+
+# utility function
 def isEncryptedFile(filePath):
     _, file_extension = os.path.splitext(filePath)
     return file_extension.lower() == '.aes'
@@ -53,6 +67,8 @@ def createOutputFileName(filePath):
     newFileName = filename_without_extension + '.' + newExtension
     newFilePath = os.path.join(directory, newFileName)
     return newFilePath
+
+# state handler function
 
 def integrityVerifyHandle():
     try:
@@ -77,16 +93,11 @@ def keyExchangeHandle():
 def startAppHandle():
     global decryptedFile
     global encryptedFile
-    global appPID
-    global supervisorPID
+    global userProc
     
     # decrypt file
     password = "abcde"
-    if encryptedFile == None:
-        return FAIL
     decryptedFile=createOutputFileName(encryptedFile)
-    if decryptedFile == None:
-        return FAIL
     with open(encryptedFile, "rb") as fIn:
         try:
             with open(decryptedFile, "wb") as fOut:
@@ -94,43 +105,43 @@ def startAppHandle():
         except ValueError:
             remove(decryptedFile)
             messagebox.showinfo("Decrypt failed!")
-            return FAIL
     if platform.system() == 'Linux':
         os.system(f'chmod +x {decryptedFile}')
     
     # run program
+    mp.set_start_method('spawn')
     decryptedFileRunPath = os.path.abspath(decryptedFile)
-    if decryptedFile == None:
-        return
-    if platform.system() == 'Linux':
-        supervisorPID = os.fork()
-        if supervisorPID > 0:
-            # main process
-            print("main PID:", os.getpid())
-            print("Child's process - supervisor PID:", supervisorPID)
-            appPID = os.fork()
-            if appPID > 0:
-                # still main process
-                print("main PID:", os.getpid())
-                print("Child's process - app PID:", appPID)
-                while True:
-                    pass
-            else:
-                # app process
-                print("app PID:", os.getpid())
-                print("Parent's process ID:", os.getppid())
-                os.execl(decryptedFileRunPath, decryptedFileRunPath)
-        else:
-            # supervisor process
-            print("super PID:", os.getpid())
-            print("Parent's process ID:", os.getppid())
-            while True:
-                pass
+    print("MyEngine PID = ", os.getpid())
+    supervisorProc = Process(target=supervisorProcRun, args=())
+    userProc = Process(target=userProcRun, args=())
+    supervisorProc.start()
+    if (supervisorProc.is_alive()):
+        userProc.start()
+
+    while userProc.is_alive() & supervisorProc.is_alive():
+        pass
     
-    elif platform.system() == "Windows":        
-        print("Windows")
+    # if not (supervisorProc.is_alive() & userProc.is_alive()):
+    #     userProc.join()
+    #     supervisorProc.join()    
+    #     userProc.close()
+    #     supervisorProc.close()
+    #     return
+                
+    if not (supervisorProc.is_alive()):
+        if (userProc.is_alive()):
+            userProc.kill()
 
+    if not (userProc.is_alive()):
+        if (supervisorProc.is_alive()):
+            supervisorProc.kill()
 
+    userProc.join()
+    supervisorProc.join()
+    userProc.close()
+    supervisorProc.close()
+    return
+    
 def coreRun():
     state = START_APP
     while state != FINISH:
@@ -156,7 +167,7 @@ def coreRun():
             startAppHandle()
             state = FINISH
 
-    
+# main function
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print(f"Usage: python {sys.argv[0]} <encrypted file>")
@@ -164,7 +175,6 @@ if __name__ == "__main__":
     else:
         encryptedFile = sys.argv[1]
         if isEncryptedFile(encryptedFile) == True:
-            #signal.signal(signal.CTRL_C_EVENT, handler)
             coreRun()
         else:
             messagebox.showinfo("Invalid file")
