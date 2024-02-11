@@ -1,4 +1,4 @@
-# This is my graduation thesis project.
+# This is N4 graduation thesis project.
 ## how to build
 ### PC_Software
   - pip3 install pyinstaller
