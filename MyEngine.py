@@ -38,11 +38,25 @@ decryptedFile      = None
 isProcRun          = False
 userProc           = None
 
-# child process function
-def supervisorProcRun():
-    print("Supervisor PID = ", os.getpid())
+# supervisor Process Handle
+def supervisorProcRun(userProcPID):
+    myEnginePID = os.getppid()
+    print("Supervisor PID =", os.getpid())
+    print("Main proc from supervisor =", myEnginePID)
+    print("User PID from supervisor =", userProcPID)
+    # Check if the main process and user process are alive
     while True:
-        pass
+        myEngine_alive = psutil.pid_exists(myEnginePID)
+        userProc_alive = psutil.pid_exists(userProcPID)
+
+        if not myEngine_alive or not userProc_alive:
+            # If either process is dead, kill both processes and exit
+            if myEngine_alive:
+                os.kill(myEnginePID, signal.SIGTERM)
+            if userProc_alive:
+                os.kill(userProcPID, signal.SIGTERM)
+            os.kill(os.getpid(), signal.SIGTERM)  # Terminate supervisorProc
+            break
         
 def userProcRun():
     print("User PID = ", os.getpid())
@@ -94,7 +108,7 @@ def startAppHandle():
     global decryptedFile
     global encryptedFile
     global userProc
-    
+
     # decrypt file
     password = "abcde"
     decryptedFile=createOutputFileName(encryptedFile)
@@ -107,26 +121,20 @@ def startAppHandle():
             messagebox.showinfo("Decrypt failed!")
     if platform.system() == 'Linux':
         os.system(f'chmod +x {decryptedFile}')
-    
+
     # run program
     mp.set_start_method('spawn')
     decryptedFileRunPath = os.path.abspath(decryptedFile)
+
     print("MyEngine PID = ", os.getpid())
-    supervisorProc = Process(target=supervisorProcRun, args=())
     userProc = Process(target=userProcRun, args=())
+    userProc.start()
+
+    supervisorProc = Process(target=supervisorProcRun, args=(userProc.pid, ))
     supervisorProc.start()
-    if (supervisorProc.is_alive()):
-        userProc.start()
 
     while userProc.is_alive() & supervisorProc.is_alive():
         pass
-    
-    # if not (supervisorProc.is_alive() & userProc.is_alive()):
-    #     userProc.join()
-    #     supervisorProc.join()    
-    #     userProc.close()
-    #     supervisorProc.close()
-    #     return
                 
     if not (supervisorProc.is_alive()):
         if (userProc.is_alive()):
