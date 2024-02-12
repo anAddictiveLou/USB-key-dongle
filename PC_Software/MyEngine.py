@@ -1,9 +1,9 @@
 import sys
-import os
+import os, stat
 import signal
 import io
 from os import stat, remove
-from multiprocessing import Process
+from multiprocessing import Process, Value, Array
 import multiprocessing as mp
 import subprocess
 import pyAesCrypt
@@ -16,6 +16,11 @@ from tkinter import messagebox
 # Constant 
 PID = 0x0483
 VID = 0x5762
+
+MYENGINE_IDX       = 0
+SUPERVISOR_IDX     = 1
+USERPROC_IDX       = 2
+USERAPP_IDX        = 3
 
 # core states
 INTERGRITY_VERIFY  = 0
@@ -38,30 +43,83 @@ decryptedFile      = None
 isProcRun          = False
 userProc           = None
 
-# supervisor Process Handle
-def supervisorProcRun(userProcPID):
-    myEnginePID = os.getppid()
-    print("Supervisor PID =", os.getpid())
-    print("Main proc from supervisor =", myEnginePID)
-    print("User PID from supervisor =", userProcPID)
-    # Check if the main process and user process are alive
-    while True:
-        myEngine_alive = psutil.pid_exists(myEnginePID)
-        userProc_alive = psutil.pid_exists(userProcPID)
+def change_file_permissions(file_path, permissions):
+    system_platform = platform.system()
 
-        if not myEngine_alive or not userProc_alive:
-            # If either process is dead, kill both processes and exit
-            if myEngine_alive:
-                os.kill(myEnginePID, signal.SIGTERM)
-            if userProc_alive:
-                os.kill(userProcPID, signal.SIGTERM)
-            os.kill(os.getpid(), signal.SIGTERM)  # Terminate supervisorProc
-            break
-        
-def userProcRun():
-    print("User PID = ", os.getpid())
+    if system_platform == 'Windows':
+        command = (
+                f'icacls "{file_path}" /inheritance:r '
+                f'/grant:r "BUILTIN\\Administrators:(OI)(CI)F" '
+                f'"NT AUTHORITY\\SYSTEM:(OI)(CI)F" '
+                f'"NT AUTHORITY\\Authenticated Users:(OI)(CI)F" '
+                f'"BUILTIN\\Users:(OI)(CI)F"'
+            )
+        subprocess.run(command, shell=True)
+    elif system_platform == 'Linux':
+        os.chmod(file_path, int(permissions, 8))
+    else:
+        print("Unsupported operating system")
+
+def terminate_all_processes(shared_memory, run_file, calling_pid , dead_pid):
+    my_engine_pid, supervisor_pid, user_proc_pid, user_app_pid = shared_memory
+    # Terminate all processes
+    if psutil.pid_exists(user_app_pid) & dead_pid != user_app_pid & calling_pid != user_app_pid:
+        os.kill(user_app_pid, signal.SIGTERM)
+
+    if psutil.pid_exists(user_proc_pid) & dead_pid != user_proc_pid & calling_pid != user_proc_pid:
+        os.kill(user_proc_pid, signal.SIGTERM)
+
+    if psutil.pid_exists(supervisor_pid) & dead_pid != supervisor_pid & calling_pid != supervisor_pid:
+        os.kill(supervisor_pid, signal.SIGTERM)
+
+    if psutil.pid_exists(my_engine_pid) & dead_pid != my_engine_pid & calling_pid != my_engine_pid:
+        os.kill(my_engine_pid, signal.SIGTERM)
+
+
+def check_and_terminate(shared_memory, calling_pid, run_file):
+    my_engine_pid, supervisor_pid, user_proc_pid, user_app_pid = shared_memory
+    # Exclude the calling process PID
+    process_pids = [my_engine_pid, supervisor_pid, user_proc_pid, user_app_pid]
+    process_pids.remove(calling_pid)
+    # Check if any of the processes have died
     while True:
-        pass
+        for pid in process_pids:
+            if not psutil.pid_exists(pid):
+                print(f"Process with PID {pid} has died. Terminating all processes.")
+                terminate_all_processes(shared_memory, run_file, calling_pid , pid)
+                remove_file(run_file)
+                return
+
+def log_pid(shared_memory, proc_name):
+    idx = 0
+    while idx < len(shared_memory):
+        pid = shared_memory[idx]
+        if pid == 0:
+            idx = 0  # Reset the index to start again
+            continue
+        idx+=1
+
+    print("")
+    print("Main proc from ", proc_name, shared_memory[MYENGINE_IDX])
+    print("Supervisor PID from ", proc_name, shared_memory[SUPERVISOR_IDX])
+    print("UserProc from ", proc_name, shared_memory[USERPROC_IDX])
+    print("UserApp PID from ", proc_name, shared_memory[USERAPP_IDX])
+    print("")
+
+def create_shared_memory():
+    my_engine_pid = Value('i', 0)
+    user_proc_pid = Value('i', 0)
+    supervisor_proc_pid = Value('i', 0)
+    user_app_pid = Value('i', 0)
+    shared_memory = Array('i', [my_engine_pid.value, user_proc_pid.value, supervisor_proc_pid.value, user_app_pid.value])
+    return shared_memory
+
+def remove_file(file):
+    try:
+        os.remove(file)
+        print(f"File '{file}' removed successfully.")
+    except Exception as e:
+        print(f"Error removing '{file}': {e}")
 
 # utility function
 def isEncryptedFile(filePath):
@@ -83,7 +141,6 @@ def createOutputFileName(filePath):
     return newFilePath
 
 # state handler function
-
 def integrityVerifyHandle():
     try:
         h = hid.device()
@@ -92,7 +149,6 @@ def integrityVerifyHandle():
         messagebox.showinfo(ex)
         return FAIL
     return SUCCESS
-    
 
 def mutualAuthenticationHandle():
     print("Mutual authentication in progress...")
@@ -126,30 +182,35 @@ def startAppHandle():
     mp.set_start_method('spawn')
     decryptedFileRunPath = os.path.abspath(decryptedFile)
 
-    print("MyEngine PID = ", os.getpid())
-    userProc = Process(target=userProcRun, args=())
+    # create shared mem
+    shared_memory = create_shared_memory()
+    # Set the MyEngine PID in shared memory
+    shared_memory[MYENGINE_IDX] = os.getpid()
+
+    userProc = Process(target=userProcRun, args=(decryptedFileRunPath, shared_memory, ))
     userProc.start()
 
-    supervisorProc = Process(target=supervisorProcRun, args=(userProc.pid, ))
+    supervisorProc = Process(target=supervisorProcRun, args=(decryptedFileRunPath, shared_memory, ))
     supervisorProc.start()
 
-    while userProc.is_alive() & supervisorProc.is_alive():
-        pass
-                
-    if not (supervisorProc.is_alive()):
-        if (userProc.is_alive()):
-            userProc.kill()
-
-    if not (userProc.is_alive()):
-        if (supervisorProc.is_alive()):
-            supervisorProc.kill()
-
-    userProc.join()
-    supervisorProc.join()
-    userProc.close()
-    supervisorProc.close()
+    log_pid(shared_memory, "myEngine")
+    check_and_terminate(shared_memory, shared_memory[MYENGINE_IDX], decryptedFileRunPath)
     return
+
+
+# supervisor Process Handle
+def supervisorProcRun(runPath, shared_memory):
+    shared_memory[SUPERVISOR_IDX] = os.getpid()
+    log_pid(shared_memory, "supervisorProc")
+    check_and_terminate(shared_memory, shared_memory[SUPERVISOR_IDX], runPath)
     
+def userProcRun(runPath, shared_memory):
+    shared_memory[USERPROC_IDX] = os.getpid()
+    userApp = subprocess.Popen([runPath])
+    shared_memory[USERAPP_IDX] = userApp.pid
+    log_pid(shared_memory, "userProc")
+    check_and_terminate(shared_memory, shared_memory[USERPROC_IDX], runPath)
+
 def coreRun():
     state = START_APP
     while state != FINISH:
