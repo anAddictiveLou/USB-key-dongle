@@ -13,14 +13,19 @@ import psutil
 import tkinter as tk
 from tkinter import messagebox
 import hashlib
+import secrets
+from Crypto.Cipher import AES
 
 # USB
 vendor_id = 1155
 product_id = 22352
 serial_number = "403F5C5F3030"
-P = "910"
-SN = "1706"
-r = "2001"
+P = "1234526"
+r = "2001123a"
+R = secrets.token_bytes(16)
+DecryptedKey = None
+r_file_path = "encrypted_data.txt.aes"
+r_file_password = "your_secure_password"
 
 MYENGINE_IDX       = 0
 SUPERVISOR_IDX     = 1
@@ -63,8 +68,69 @@ isProcRun          = False
 userProc           = None
 usb_hid            = None
 
-# Packet def
-C1_PREFIX = "0x01"
+def get_r_value_from_file(file_path, password):
+    try:
+        return read_encrypted_string(file_path, password)
+    except Exception as e:
+        print("Error:", e)
+
+def put_r_value_to_file(file_path, password, value):
+    try:
+        write_encrypt_string(file_path, password, value)
+        print("File updated and encrypted successfully.")
+    except Exception as e:
+        print("Error:", e)
+
+def encrypt_file(password, input_file, output_file):
+    bufferSize = 64 * 1024
+    pyAesCrypt.encryptFile(input_file, output_file, password, bufferSize)
+
+def decrypt_file(password, input_file, output_file):
+    bufferSize = 64 * 1024
+    pyAesCrypt.decryptFile(input_file, output_file, password, bufferSize)
+
+def read_encrypted_string(file_path, password):
+    decrypt_temp_file = "temp_decrypted.txt"
+    decrypt_file(password, file_path, decrypt_temp_file)
+
+    with open(decrypt_temp_file, "r") as f:
+        decrypted_string = f.read()
+
+    os.remove(decrypt_temp_file)
+    return decrypted_string
+
+def write_encrypt_string(file_path, password, new_string):
+    encrypt_temp_file = "temp_encrypted.txt"
+
+    with open(encrypt_temp_file, "w") as f:
+        f.write(new_string)
+
+    encrypt_file(password, encrypt_temp_file, file_path)
+    os.remove(encrypt_temp_file)
+
+def encrypt_aes_ecb(key, plaintext):
+    # Ensure the key length is correct (128 bits = 16 bytes)
+    assert len(key) == 16
+
+    # Create AES cipher object with ECB mode
+    cipher = AES.new(key, AES.MODE_ECB)
+
+    # Encrypt the plaintext
+    ciphertext = cipher.encrypt(plaintext)
+
+    return ciphertext
+
+def decrypt_aes_ecb(key, ciphertext):
+    # Ensure the key length is correct (128 bits = 16 bytes)
+    assert len(key) == 16
+
+    # Create AES cipher object with ECB mode
+    cipher = AES.new(key, AES.MODE_ECB)
+
+    # Decrypt the ciphertext
+    decrypted_data = cipher.decrypt(ciphertext)
+
+    return decrypted_data
 
 def open_hid_device(vendor_id, product_id, serial_number):
     try:
@@ -168,6 +234,10 @@ def change_file_permissions(file_path, permissions):
         os.chmod(file_path, int(permissions, 8))
     else:
         print("Unsupported operating system")
+
+def print_decimal_values(name, data):
+    decimal_values = list(data)
+    print(f"{name} in decimal: {decimal_values}")
 
 def terminate_all_processes(shared_memory, run_file, calling_pid , dead_pid):
     my_engine_pid, supervisor_pid, user_proc_pid, user_app_pid = shared_memory
@@ -341,15 +411,92 @@ def integrityVerifyHandle():
 
         else:
             ret = FAIL
-            
     return ret
 
 def mutualAuthenticationHandle_genR_sendV_VP():
     ret = SUCCESS
+    global R
+    global usb_hid
+
+    # Compute V and send V xor r
+    byte_P = P.encode('utf-8')
+    byte_r = r.encode('utf-8')
+    byte_r_concat_P = concat_arrays(byte_r, byte_P)
+    V = compute_sha1_hash(byte_r_concat_P)
+    decimal_values = list(V)
+    print("V from PC in decimal: ", decimal_values)
+    V_xor_r = bitwise_xor(V, byte_r)
+    V_xor_r_Prefix = bytes([0x04])
+    V_xor_r_Sent = concat_arrays(V_xor_r_Prefix, V_xor_r)
+    V_xor_r_first_byte = bytes([0x00])
+    V_xor_r_Sent = concat_arrays(V_xor_r_first_byte, V_xor_r_Sent)
+    decimal_values = list(V_xor_r_Sent)
+    print("V xor r packet from PC in decimal: ", decimal_values)
+    send_packet_to_hid_device(usb_hid, V_xor_r_Sent)
+
+    # verify V
+    V_test = bitwise_xor(V_xor_r, byte_r)
+    decimal_values = list(V_test)
+    print("V test from PC in decimal: ", decimal_values)
+
+    # Compute Vp and send Vp xor r
+    byte_R_concat_P = concat_arrays(R, byte_P)
+    Vp = compute_sha1_hash(byte_R_concat_P)
+    Vp_xor_r = bitwise_xor(Vp, byte_r)
+    Vp_xor_r_Prefix = bytes([0x05])
+    Vp_xor_r_Sent = concat_arrays(Vp_xor_r_Prefix, Vp_xor_r)
+    Vp_xor_r_first_byte = bytes([0x00])
+    Vp_xor_r_Sent = concat_arrays(Vp_xor_r_first_byte, Vp_xor_r_Sent)
+    decimal_values = list(Vp_xor_r_Sent)
+    print("Vp xor r packet from PC in decimal: ", decimal_values)
+    send_packet_to_hid_device(usb_hid, Vp_xor_r_Sent)
+
+    # Send R to USB
+    decimal_values = list(R)
+    print("R from PC in decimal: ", decimal_values)
+    R_Prefix = bytes([0x06])
+    R_Sent = concat_arrays(R_Prefix, R)
+    R_test = bytes([0x00])
+    R_Sent = concat_arrays(R_test, R_Sent)
+    decimal_values = list(R_Sent)
+    print("R from PC in decimal: ", decimal_values)
+    send_packet_to_hid_device(usb_hid, R_Sent)
     return ret
 
 def mutualAuthenticationHandle_recvC4_verifyR():
+    global R
+    global r
     ret = SUCCESS
+    # Sk from PC, Sk = H(r) xor R
+    byte_r = r.encode('utf-8')
+    Hr = compute_sha1_hash(byte_r)
+    decimal_values = list(Hr)
+    print("Hr from PC in decimal: ", decimal_values)
+    Sk = bitwise_xor(Hr, R)
+    print_decimal_values("Sk", Sk)
+    # Use Sk and R truncate 16bytes instead
+    Sk_truncate = Sk[:16]
+    Sk_truncate = bytes(Sk_truncate)
+
+    # Cal R = De(Sk, C4)
+    C4Test = encrypt_aes_ecb(Sk_truncate, R)
+    print_decimal_values("C4 from PC generate by PC for testing", C4Test)
+    R_from_USB_test = decrypt_aes_ecb(Sk_truncate, C4Test)
+    print_decimal_values("R_from_USB generate by PC for testing", R_from_USB_test)
+
+    C4Recv = recv_packet_from_hid_device(usb_hid, 21)
+    if C4Recv[0] == 0x07:
+        C4 = bytes(C4Recv[5:])
+        print_decimal_values("C4 from USB", C4)
+        R_from_USB = decrypt_aes_ecb(Sk_truncate, C4)
+        print_decimal_values("R_from_USB", R_from_USB)
+        if R_from_USB == R:
+            print("R from USB is verified", R_from_USB)
+            ret = SUCCESS
+        else:
+            ret = FAIL
+    else:
+        ret = FAIL
     return ret
 
 def mutualAuthenticationHandle():
@@ -372,10 +519,45 @@ def mutualAuthenticationHandle():
 
 def keyExchangeHandle_reqKey():
     ret = SUCCESS
+    global R
+    global usb_hid
+
+    # Compute H(R) xor SN
+    HR = compute_sha1_hash(R)
+    print_decimal_values("HR from PC", HR)
+    byteSN = serial_number.encode('utf-8')
+    HR_xor_SN = bitwise_xor(HR, byteSN)
+    print_decimal_values("HR_xor_SN from PC", HR_xor_SN)
+    HR_xor_SN_Prefix = bytes([0x08])
+    HR_xor_SN_Sent = concat_arrays(HR_xor_SN_Prefix, HR_xor_SN)
+    HR_xor_SN_Sent = concat_arrays(bytes([0x00]), HR_xor_SN_Sent)
+    print_decimal_values("HR_xor_SN_Sent from PC", HR_xor_SN_Sent)
+    send_packet_to_hid_device(usb_hid, HR_xor_SN_Sent)
+
     return ret
 
 def keyExchangeHandle_decryptKey():
     ret = SUCCESS
+    global DecryptedKey
+    # Sk from PC, Sk = H(r) xor R
+    byte_r = r.encode('utf-8')
+    Hr = compute_sha1_hash(byte_r)
+    Sk = bitwise_xor(Hr, R)
+    # Use Sk and R truncate 16bytes instead
+    Sk_truncate = bytes(Sk[:16])
+
+    # Decrypt Key
+    EncryptedKeyRecv = recv_packet_from_hid_device(usb_hid, 21)
+    print_decimal_values("EncryptedKeyRecv from USB", EncryptedKeyRecv)
+    if EncryptedKeyRecv[0] == 0x09:
+        EncryptedKey = bytes(EncryptedKeyRecv[5:])
+        print_decimal_values("EncryptedKey from USB", EncryptedKey)
+        DecryptedKey = decrypt_aes_ecb(Sk_truncate, EncryptedKey)
+        print_decimal_values("DecryptedKey:", DecryptedKey)
+        ret = SUCCESS
+    else:
+        ret = FAIL
+
     return ret
 
 def keyExchangeHandle():
@@ -400,15 +582,19 @@ def startAppHandle():
     ret = SUCCESS
     global decryptedFile
     global encryptedFile
+    global DecryptedKey
     global userProc
 
+    if DecryptedKey == None:
+        return FAIL
+
     # decrypt file
-    password = "abcde"
+    DecryptedKey = DecryptedKey.decode('utf-8')
     decryptedFile=createOutputFileName(encryptedFile)
     with open(encryptedFile, "rb") as fIn:
         try:
             with open(decryptedFile, "wb") as fOut:
-                pyAesCrypt.decryptStream(fIn, fOut, password, bufferSize)
+                pyAesCrypt.decryptStream(fIn, fOut, DecryptedKey, bufferSize)
         except ValueError:
             remove(decryptedFile)
             messagebox.showinfo("Decrypt failed!")
@@ -449,7 +635,9 @@ def userProcRun(runPath, shared_memory):
     check_and_terminate(shared_memory, shared_memory[USERPROC_IDX], runPath)
 
 def coreRun():
+    global r
     ret = SUCCESS
+    #r = get_r_value_from_file(r_file_path, r_file_password)
     state = INTERGRITY_VERIFY
     while state != FINISH:
         if state == INTERGRITY_VERIFY:

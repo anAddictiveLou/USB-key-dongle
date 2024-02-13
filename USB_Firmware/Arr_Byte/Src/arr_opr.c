@@ -64,12 +64,11 @@ arr_xor bitwiseXOR(const unsigned char* array1, int length1, const unsigned char
 
     result_xor.result = result;
     result_xor.length = maxLength;
-    free(result);
     return result_xor;
 }
-
 arr_xor TrimZeroByte(arr_xor input) {
     int index = 0;
+    arr_xor result;
     for (int i = 0; i < input.length; i++) {
         if (input.result[i] != 0) {
             index = i;
@@ -77,17 +76,10 @@ arr_xor TrimZeroByte(arr_xor input) {
         }
     }
 
-    if (index != 0) {
-        arr_xor* result = (arr_xor*)malloc(sizeof(arr_xor));
-        result->length = input.length - index;
-        result->result = (unsigned char *)malloc(result->length * sizeof(unsigned char));
-        for (int j = 0; j < result->length; j++) {
-            result->result[j] = input.result[index + j];
-        }
-        input.length = result->length;
-        input.result = result->result;
-        return input;
+    result.length = input.length - index;
+    result.result = (unsigned char *)malloc(result.length * sizeof(unsigned char));
+    for (int j = 0; j < result.length; j++) {
+        result.result[j] = input.result[index + j];
     }
-
-    return input;
+    return result;
 }

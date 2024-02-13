@@ -13,7 +13,13 @@
 #include <stddef.h>
 
 /****************************** MACROS ******************************/
-#define SHA1_BLOCK_SIZE 20              // SHA1 outputs a 20 byte digest
+#define SHA1_BLOCK_SIZE 		20 // SHA1 outputs a 20 byte digest
+#define PACKET_SIZE_NO_PREFIX 	20
+#define MAX_PARA_SIZE			PACKET_SIZE_NO_PREFIX
+#define PACKET_SIZE_WITH_PREFIX 21
+#define AES_KEY_SIZE			16
+#define PREFIX_LENGTH			1
+#define PREFIX					0
 
 /**************************** DATA TYPES ****************************/
 typedef unsigned char BYTE;             // 8-bit byte

@@ -643,27 +643,37 @@ static uint8_t  USBD_CUSTOM_HID_DataIn(USBD_HandleTypeDef *pdev,
   * @retval status
   */
 State_t state = Integrity_State;
-uint8_t P[]={"910"};
-uint8_t SN[]={"1706"};
-uint8_t Key[] = "124abc5671234567";
+uint8_t SN[MAX_PARA_SIZE]={"403F5C5F3030"};
+uint8_t r[AES_KEY_SIZE]={"2001123a"};
+uint8_t P[MAX_PARA_SIZE]={"1234526"};
+uint8_t Key[AES_KEY_SIZE] = "124abc5671234567";
+// V = H(r || P)
+// uint8_t V[PACKET_SIZE_NO_PREFIX]= {3, 253, 76, 129, 67, 45, 87, 220, 20, 69, 47, 218, 234, 20, 218, 108, 205, 43, 100, 119};
 /* Các giá trị V, r để 20 byte luôn.
  * Hr tính toán SHA-1 của r là bao nhiêu thì điền vào.
  * Hashfile_point cũng điền vào */
-uint8_t V[]= "123";
-uint8_t Hr[] = "123";
-uint8_t r[]={"2001"};
-uint8_t HashFile_point[] = {"a12c3"};
+
+uint8_t Hr[PACKET_SIZE_NO_PREFIX];
+uint8_t HR[PACKET_SIZE_NO_PREFIX];
+uint8_t Sk[AES_KEY_SIZE];
 /**/
 uint8_t SHA_buf[SHA1_BLOCK_SIZE];
 arr_xor tmp_arr;
-uint8_t Rx_buf[20];
-uint8_t V_buf[20];
-uint8_t Vp_buf[20];
-uint8_t R_buf[20];
-uint8_t Tx_buf[21];
+uint8_t Rx_buf[PACKET_SIZE_NO_PREFIX];
+arr_xor P_from_USB;
+uint8_t* r_concat_P;
+uint8_t V[PACKET_SIZE_NO_PREFIX];
+uint8_t V_from_PC[MAX_PARA_SIZE] = {0};
+uint8_t V_xor_r_from_PC_buf[PACKET_SIZE_NO_PREFIX];
+uint8_t Vp_from_PC[MAX_PARA_SIZE] = {0};
+uint8_t Vp_xor_r_from_PC_buf[PACKET_SIZE_NO_PREFIX];
+uint8_t R_from_PC_buf[AES_KEY_SIZE];
+uint8_t C4[PACKET_SIZE_NO_PREFIX];
+uint8_t HR_xor_SN_from_PC[PACKET_SIZE_NO_PREFIX];
+uint8_t HR_from_PC[PACKET_SIZE_NO_PREFIX];
+uint8_t Tx_buf[PACKET_SIZE_WITH_PREFIX];
 BYTE K_point[16];
-uint8_t AES_buf[16];
-uint8_t check_r[20];
+uint8_t AES_buf[AES_KEY_SIZE];
 SHA1_CTX ctx;
 WORD key_schedule[30];
 
@@ -674,113 +684,144 @@ static uint8_t  USBD_CUSTOM_HID_DataOut(USBD_HandleTypeDef *pdev,
   USBD_CUSTOM_HID_HandleTypeDef     *hhid = (USBD_CUSTOM_HID_HandleTypeDef *)pdev->pClassData;
   ((USBD_CUSTOM_HID_ItfTypeDef *)pdev->pUserData)->OutEvent(hhid->Report_buf[0],
                                                             hhid->Report_buf[1]);
-  if(hhid->Report_buf[0]==0x01)
+//  if(hhid->Report_buf[0]==0x01)
+//  {
+//	  Tx_buf[0]=0x17;
+//	  USBD_CUSTOM_HID_SendReport(pdev, Tx_buf, 21);
+//  }
+  for(int i=1;i<PACKET_SIZE_WITH_PREFIX;i++)
   {
-	  Tx_buf[0]=0x17;
-	  USBD_CUSTOM_HID_SendReport(pdev, Tx_buf, 21);
+	  Rx_buf[i-1]=hhid->Report_buf[i];
   }
-//  for(int i=1;i<21;i++)
-//  {
-//	  Rx_buf[i-1]=hhid->Report_buf[i];
-//  }
-//  switch(state)
-//  {
-//  case Integrity_State:
-//	  if(hhid->Report_buf[0]==0x01)
-//	    {
-//		  sha1_init(&ctx);
-//		  sha1_update(&ctx, SN ,strlen(SN));
-//		  sha1_final(&ctx,SHA_buf);
-//	  	  tmp_arr = bitwiseXOR(Rx_buf, 20, SHA_buf, 20);
-//	  	  for(int i=0;i<20;i++)
-//	  	  {
-//	  		Rx_buf[i]=tmp_arr.result[i];
-//	  	  }
-//	  	  if((Rx_buf[17]==0x39)&&(Rx_buf[18]==0x31)&&(Rx_buf[19]==0x30))
-//	  	  {
-//	  		  Tx_buf[0] = 0x02;
-//	  		  tmp_arr = bitwiseXOR(r, strlen(r), SHA_buf, strlen(SHA_buf));
-//	  		  for(int i=1; i<21; i++)
-//	  		  {
-//	  			  Tx_buf[i] = tmp_arr.result[i-1];
-//	  		  }
-//	  		  USBD_CUSTOM_HID_SendReport(pdev, Tx_buf, 21);
-//	  	  }
-//	  	}
-//	  else if(hhid->Report_buf[0]==0x03)
-//	  {
-//		  sha1_init(&ctx);
-//		  sha1_update(&ctx, HashFile_point ,strlen(HashFile_point));
-//		  sha1_final(&ctx,SHA_buf);
-//		  tmp_arr = bitwiseXOR(SHA_buf, strlen(SHA_buf), r, strlen(r));
-//		  if(strcmp(tmp_arr.result,Rx_buf) == 0)
-//		  {
-//			  state = MutualAuthen_State;
-//		  }
-//	  }
-//	  break;
-//  case MutualAuthen_State:
-//	  if(hhid->Report_buf[0]==0x04)
-//	  {
-//		  strcpy(V_buf,Rx_buf);
-//	  }
-//	  else if(hhid->Report_buf[0]==0x05)
-//	  {
-//		  strcpy(Vp_buf,Rx_buf);
-//	  }
-//	  else if(hhid->Report_buf[0]==0x06)
-//	  {
-//		  strcpy(R_buf,Rx_buf);
-//		  tmp_arr = bitwiseXOR(V_buf, strlen(V_buf), r, strlen(r));
-//		  if(strcmp(tmp_arr.result,V)== 0)
-//		  {
-//			  tmp_arr = bitwiseXOR(Hr,strlen(Hr), R_buf, strlen(R_buf));
-//			  for(int i=0;i<16;i++)
-//			  {
-//				  K_point[i]=tmp_arr.result[i];
-//			  }
-//			  tmp_arr = bitwiseXOR(r,strlen(r), Vp_buf, strlen(Vp_buf));
-//			  for(int i=0;i<20;i++)
-//			  {
-//				  V[i]=tmp_arr.result[i];
-//			  }
-//			  strcpy(r,R_buf);
-//			  Tx_buf[0]= 0x07;
-//			  Tx_buf[1]=0x17;
-//			  Tx_buf[2]=0x06;
-//			  Tx_buf[3]=0x20;
-//			  Tx_buf[4]=0x01;
-//			  USBD_CUSTOM_HID_SendReport(pdev, Tx_buf, 21);
-//			  state = KeyExchange_State;
-//		  }
-//	  }
-//	  break;
-//  case KeyExchange_State:
-//	  if(hhid->Report_buf[0]=0x08)
-//	  {
-//		  sha1_init(&ctx);
-//		  sha1_update(&ctx, r ,strlen(r));
-//		  sha1_final(&ctx,SHA_buf);
-//		  tmp_arr = bitwiseXOR(SHA_buf, strlen(SHA_buf), SN, strlen(SN));
-//		  for(int i=0;i < 20;i++)
-//		  {
-//			  check_r[i] = tmp_arr.result[i];
-//		  }
-//		  if(strcmp(check_r,Rx_buf)==0)
-//		  {
-//			  Tx_buf[0]=0x09;
-//			  aes_key_setup(K_point,key_schedule,128);
-//			  aes_encrypt(Key, AES_buf, key_schedule, 128);
-//			  for(int i=1;i<17;i++)
-//			  {
-//				  Tx_buf[i] = AES_buf[i-1];
-//			  }
-//			  USBD_CUSTOM_HID_SendReport(pdev, Tx_buf, 21);
-//			  state = Integrity_State;
-//		  }
-//	  }
-//	  break;
-//  }
+  switch(state)
+  {
+  case Integrity_State:
+	  if(hhid->Report_buf[0]==0x01)
+	    {
+		  sha1_init(&ctx);
+		  sha1_update(&ctx, SN ,strlen(SN));
+		  sha1_final(&ctx,SHA_buf);
+	  	  tmp_arr = bitwiseXOR(Rx_buf, PACKET_SIZE_NO_PREFIX, SHA_buf, PACKET_SIZE_NO_PREFIX);
+	  	  for(int i=0;i<PACKET_SIZE_NO_PREFIX;i++)
+	  	  {
+	  		Rx_buf[i]=tmp_arr.result[i];
+	  	  }
+	  	  // Retrieve P from C1 and verify P
+	  	  P_from_USB = TrimZeroByte(tmp_arr);
+
+	  	  // free temp buff
+	  	  free(tmp_arr.result);
+	  	  tmp_arr.length = 0;
+
+	  	  if (memcmp(P_from_USB.result, P, strlen(P)) == 0)
+	  	  {
+			  {
+				  // Send C2
+				  Tx_buf[0] = 0x02;
+				  tmp_arr = bitwiseXOR(r, strlen(r), SHA_buf, PACKET_SIZE_NO_PREFIX);
+				  for(int i=1; i<PACKET_SIZE_WITH_PREFIX; i++)
+				  {
+					  Tx_buf[i] = tmp_arr.result[i-1];
+				  }
+			  	  // free temp buff
+			  	  free(tmp_arr.result);
+			  	  tmp_arr.length = 0;
+
+				  USBD_CUSTOM_HID_SendReport(pdev, Tx_buf, PACKET_SIZE_WITH_PREFIX);
+				  state = MutualAuthen_State;
+			  }
+	  	  }
+	  	}
+	  break;
+
+	case MutualAuthen_State:
+	  if(hhid->Report_buf[0]==0x04)
+	  {
+		  memcpy(V_xor_r_from_PC_buf, Rx_buf, PACKET_SIZE_NO_PREFIX);
+	  }
+	  else if(hhid->Report_buf[0]==0x05)
+	  {
+		  memcpy(Vp_xor_r_from_PC_buf, Rx_buf, PACKET_SIZE_NO_PREFIX);
+	  }
+	  else if(hhid->Report_buf[0]==0x06)
+	  {
+		  memcpy(R_from_PC_buf, Rx_buf, AES_KEY_SIZE);
+		  // get V from PC
+		  tmp_arr = bitwiseXOR(V_xor_r_from_PC_buf, PACKET_SIZE_NO_PREFIX, r, strlen(r));
+		  memcpy(V_from_PC, tmp_arr.result, PACKET_SIZE_NO_PREFIX);
+	 	  // free temp buff
+		  free(tmp_arr.result);
+		  tmp_arr.length = 0;
+
+		  // get Vp from PCs
+		  tmp_arr = bitwiseXOR(Vp_xor_r_from_PC_buf, PACKET_SIZE_NO_PREFIX, r, strlen(r));
+		  memcpy(Vp_from_PC, tmp_arr.result, PACKET_SIZE_NO_PREFIX);
+	 	  // free temp buff
+		  free(tmp_arr.result);
+		  tmp_arr.length = 0;
+
+		  // Cal and verify V = H(r || P)
+		  r_concat_P = concatArrays(r, strlen(r), P, strlen(P));
+		  r_concat_P[strlen(r) +  strlen(P)] = '\0';
+		  if (r_concat_P != NULL)
+		  {
+			  sha1_init(&ctx);
+			  sha1_update(&ctx, r_concat_P ,strlen(r_concat_P));
+			  sha1_final(&ctx,V);
+			  free(r_concat_P);
+			  r_concat_P = NULL;
+		  }
+		  if (memcmp(V_from_PC, V, PACKET_SIZE_NO_PREFIX) == 0) {
+			  // Send C4 = En(Sk, R); Sk = H(r) xor R
+			  sha1_init(&ctx);
+			  sha1_update(&ctx, r ,strlen(r));
+			  sha1_final(&ctx,Hr);
+
+			  tmp_arr = bitwiseXOR(Hr,PACKET_SIZE_NO_PREFIX, R_from_PC_buf, AES_KEY_SIZE);
+			  memcpy(Sk, tmp_arr.result, AES_KEY_SIZE);
+		 	  // free temp buff
+			  free(tmp_arr.result);
+			  tmp_arr.length = 0;
+
+			  // Calculate C4 and send C4 to PC
+			  aes_key_setup(Sk,key_schedule,128);
+			  aes_encrypt(R_from_PC_buf, AES_buf, key_schedule, 128);
+			  Tx_buf[PREFIX] = 0x07;
+			  memset(Tx_buf + PREFIX_LENGTH, 0, PACKET_SIZE_NO_PREFIX - AES_KEY_SIZE);
+			  memcpy(Tx_buf + PREFIX_LENGTH + PACKET_SIZE_NO_PREFIX - AES_KEY_SIZE, AES_buf, AES_KEY_SIZE);
+			  USBD_CUSTOM_HID_SendReport(pdev, Tx_buf, 21);
+			  state = KeyExchange_State;
+		  }
+	  }
+	  break;
+	case KeyExchange_State:
+	  if(hhid->Report_buf[0]=0x08)
+	  {
+		  memcpy(HR_xor_SN_from_PC, Rx_buf, PACKET_SIZE_NO_PREFIX);
+		  sha1_init(&ctx);
+		  sha1_update(&ctx, R_from_PC_buf ,AES_KEY_SIZE);
+		  sha1_final(&ctx,HR);
+		  tmp_arr = bitwiseXOR(HR_xor_SN_from_PC, PACKET_SIZE_NO_PREFIX, SN, strlen(SN));
+		  memcpy(HR_from_PC, tmp_arr.result, PACKET_SIZE_NO_PREFIX);
+
+		  // free temp buff
+		  free(tmp_arr.result);
+		  tmp_arr.length = 0;
+
+		  if (memcmp(HR_from_PC, HR, PACKET_SIZE_NO_PREFIX) == 0)
+		  {
+			  aes_key_setup(Sk,key_schedule,128);
+			  aes_encrypt(Key, AES_buf, key_schedule, 128);
+			  Tx_buf[0]=0x09;
+			  memset(Tx_buf + PREFIX_LENGTH, 0, PACKET_SIZE_NO_PREFIX - AES_KEY_SIZE);
+			  memcpy(Tx_buf + PREFIX_LENGTH + PACKET_SIZE_NO_PREFIX - AES_KEY_SIZE, AES_buf, AES_KEY_SIZE);
+			  USBD_CUSTOM_HID_SendReport(pdev, Tx_buf, 21);
+			  state = Integrity_State;
+		  }
+	  }
+	  break;
+  }
+
   USBD_LL_PrepareReceive(pdev, CUSTOM_HID_EPOUT_ADDR, hhid->Report_buf,
                          USBD_CUSTOMHID_OUTREPORT_BUF_SIZE);
 
