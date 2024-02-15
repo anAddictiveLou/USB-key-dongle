@@ -16,31 +16,17 @@ import hashlib
 import secrets
 from Crypto.Cipher import AES
 
-# USB
-vendor_id = 1155
-product_id = 22352
-serial_number = "403F5C5F3030"
-P = "1234526"
-r = "2001123a"
-R = secrets.token_bytes(16)
-DecryptedKey = None
-r_file_path = "encrypted_data.txt.aes"
-r_file_password = "your_secure_password"
-
+# idx
 MYENGINE_IDX       = 0
 SUPERVISOR_IDX     = 1
-USERPROC_IDX       = 2
-USERAPP_IDX        = 3
+USERAPP_IDX        = 2
 
 # core states
 INTERGRITY_VERIFY  = 0
 MUTAL_AUTHENCATION = 1 
 KEY_EXCHANGE       = 2
-DECRYPT            = 3
-START_APP          = 4
-APP_RUNNING        = 5
-ABNORMAL_BEHAVIOR  = 6
-FINISH             = 7
+START_APP          = 3
+FINISH             = 4
 
 # intergrity verify states
 INTERGRITY_VERIFY_SEND_C1 = 0
@@ -61,12 +47,25 @@ KEY_EXCHANGE_FINISH = 2
 # define
 SUCCESS            = 0
 FAIL               = -1
+AES_KEY_SIZE       = 16
+MAX_R_LENGTH       = AES_KEY_SIZE
 bufferSize         = 64 * 1024
 encryptedFile      = None
 decryptedFile      = None
 isProcRun          = False
 userProc           = None
 usb_hid            = None
+
+# USB
+vendor_id = 1155
+product_id = 22352
+serial_number = "403F5C5F3030"
+P = "1234526"
+r = "2001123a"
+R = secrets.token_bytes(MAX_R_LENGTH)
+DecryptedKey = None
+r_file_path = "encrypted_data.txt.aes"
+r_file_password = "your_secure_password"
 
 def get_r_value_from_file(file_path, password):
     try:
@@ -110,7 +109,7 @@ def write_encrypt_string(file_path, password, new_string):
 
 def encrypt_aes_ecb(key, plaintext):
     # Ensure the key length is correct (128 bits = 16 bytes)
-    assert len(key) == 16
+    assert len(key) == AES_KEY_SIZE
 
     # Create AES cipher object with ECB mode
     cipher = AES.new(key, AES.MODE_ECB)
@@ -122,7 +121,7 @@ def encrypt_aes_ecb(key, plaintext):
 
 def decrypt_aes_ecb(key, ciphertext):
     # Ensure the key length is correct (128 bits = 16 bytes)
-    assert len(key) == 16
+    assert len(key) == AES_KEY_SIZE
 
     # Create AES cipher object with ECB mode
     cipher = AES.new(key, AES.MODE_ECB)
@@ -142,8 +141,8 @@ def open_hid_device(vendor_id, product_id, serial_number):
                 break
 
         if not device_info:
-            print("Device not found.")
-            return None
+            messagebox.showerror("Device not found.")
+            sys.exit(FAIL)
 
         device = hid.device()
         device.open_path(device_info['path'])
@@ -154,6 +153,16 @@ def open_hid_device(vendor_id, product_id, serial_number):
         print(f"Error opening the device: {e}")
         return None
 
+def close_hid_device(device):
+    try:
+        if device:
+            device.close()
+            print("Device closed successfully.")
+        else:
+            print("No device to close.")
+
+    except Exception as e:
+        print(f"Error closing the device: {e}")
 
 def recv_packet_from_hid_device(device, packet_size):
     try:
@@ -173,6 +182,17 @@ def send_packet_to_hid_device(device, packet_data):
         print(f"Packet written to the device successfully.")
     except Exception as e:
         print(f"Error sending data to the device: {e}")
+
+def is_usb_device_connected(vendor_id, product_id, serial_number):
+    devices = hid.enumerate()
+    for info in devices:
+        if (
+            info['vendor_id'] == vendor_id
+            and info['product_id'] == product_id
+            and info['serial_number'] == serial_number
+        ):
+            return True
+    return False
 
 def trim_zero_byte(array):
     index = 0
@@ -218,56 +238,61 @@ def bitwise_xor(array1, array2):
 
     return result
 
-def change_file_permissions(file_path, permissions):
-    system_platform = platform.system()
-
-    if system_platform == 'Windows':
-        command = (
-                f'icacls "{file_path}" /inheritance:r '
-                f'/grant:r "BUILTIN\\Administrators:(OI)(CI)F" '
-                f'"NT AUTHORITY\\SYSTEM:(OI)(CI)F" '
-                f'"NT AUTHORITY\\Authenticated Users:(OI)(CI)F" '
-                f'"BUILTIN\\Users:(OI)(CI)F"'
-            )
-        subprocess.run(command, shell=True)
-    elif system_platform == 'Linux':
-        os.chmod(file_path, int(permissions, 8))
-    else:
-        print("Unsupported operating system")
-
 def print_decimal_values(name, data):
     decimal_values = list(data)
     print(f"{name} in decimal: {decimal_values}")
 
-def terminate_all_processes(shared_memory, run_file, calling_pid , dead_pid):
-    my_engine_pid, supervisor_pid, user_proc_pid, user_app_pid = shared_memory
+def terminate_all_processes(shared_memory, calling_pid , dead_pid):
+    my_engine_pid, supervisor_pid, user_app_pid = shared_memory
     # Terminate all processes
     if psutil.pid_exists(user_app_pid) & dead_pid != user_app_pid & calling_pid != user_app_pid:
         os.kill(user_app_pid, signal.SIGTERM)
 
-    if psutil.pid_exists(user_proc_pid) & dead_pid != user_proc_pid & calling_pid != user_proc_pid:
-        os.kill(user_proc_pid, signal.SIGTERM)
-
     if psutil.pid_exists(supervisor_pid) & dead_pid != supervisor_pid & calling_pid != supervisor_pid:
         os.kill(supervisor_pid, signal.SIGTERM)
 
-    if psutil.pid_exists(my_engine_pid) & dead_pid != my_engine_pid & calling_pid != my_engine_pid:
-        os.kill(my_engine_pid, signal.SIGTERM)
-
 
 def check_and_terminate(shared_memory, calling_pid, run_file):
-    my_engine_pid, supervisor_pid, user_proc_pid, user_app_pid = shared_memory
+    global vendor_id
+    global product_id
+    global serial_number
+    my_engine_pid, supervisor_pid, user_app_pid = shared_memory
     # Exclude the calling process PID
-    process_pids = [my_engine_pid, supervisor_pid, user_proc_pid, user_app_pid]
+    process_pids = [my_engine_pid, supervisor_pid, user_app_pid]
     process_pids.remove(calling_pid)
-    # Check if any of the processes have died
-    while True:
-        for pid in process_pids:
-            if not psutil.pid_exists(pid):
-                print(f"Process with PID {pid} has died. Terminating all processes.")
-                terminate_all_processes(shared_memory, run_file, calling_pid , pid)
-                remove_file(run_file)
-                return
+    if calling_pid == my_engine_pid:
+        # Check if any of the processes have died
+        while True:
+            for pid in process_pids:
+                if not psutil.pid_exists(pid):
+                    if pid == user_app_pid:
+                        if psutil.pid_exists(supervisor_pid):
+                            os.kill(supervisor_pid, signal.SIGTERM)
+                    elif pid == supervisor_pid:
+                        if psutil.pid_exists(user_app_pid):
+                            os.kill(user_app_pid, signal.SIGTERM)
+                    print(f"Process with PID {pid} has died. Terminating all processes.")
+                    if not psutil.pid_exists(user_app_pid):
+                        os.remove(run_file)
+                    close_hid_device(usb_hid)
+                    sys.exit(0)
+            if not is_usb_device_connected(vendor_id, product_id, serial_number):
+                terminate_all_processes(shared_memory, calling_pid , pid)
+                messagebox.showerror("USB is plugged out!")
+                os.remove(run_file)
+                close_hid_device(usb_hid)
+                sys.exit(0)
+
+    else:
+        while True:
+            if not psutil.pid_exists(my_engine_pid):
+                print(f"MyEngine with PID {my_engine_pid} has died. Terminating all processes.")
+                if psutil.pid_exists(user_app_pid):
+                    os.kill(user_app_pid, signal.SIGTERM)
+                    if not psutil.pid_exists(user_app_pid):
+                        os.remove(run_file)
+                    close_hid_device(usb_hid)
+                    sys.exit(0)
 
 def log_pid(shared_memory, proc_name):
     idx = 0
@@ -281,24 +306,15 @@ def log_pid(shared_memory, proc_name):
     print("")
     print("Main proc from ", proc_name, shared_memory[MYENGINE_IDX])
     print("Supervisor PID from ", proc_name, shared_memory[SUPERVISOR_IDX])
-    print("UserProc from ", proc_name, shared_memory[USERPROC_IDX])
     print("UserApp PID from ", proc_name, shared_memory[USERAPP_IDX])
     print("")
 
 def create_shared_memory():
     my_engine_pid = Value('i', 0)
-    user_proc_pid = Value('i', 0)
     supervisor_proc_pid = Value('i', 0)
     user_app_pid = Value('i', 0)
-    shared_memory = Array('i', [my_engine_pid.value, user_proc_pid.value, supervisor_proc_pid.value, user_app_pid.value])
+    shared_memory = Array('i', [my_engine_pid.value, supervisor_proc_pid.value, user_app_pid.value])
     return shared_memory
-
-def remove_file(file):
-    try:
-        os.remove(file)
-        print(f"File '{file}' removed successfully.")
-    except Exception as e:
-        print(f"Error removing '{file}': {e}")
 
 # utility function
 def isEncryptedFile(filePath):
@@ -331,8 +347,7 @@ def integrityVerifyHandle_sendC1():
     C1 = bitwise_xor(hashedByteSN, byteP)
     C1Prefix = bytes([0x01])
     C1Sent = concat_arrays(C1Prefix, C1)
-    C1Test = bytes([0x00])
-    C1Sent = concat_arrays(C1Test, C1Sent)
+    C1Sent = concat_arrays(bytes([0x00]), C1Sent)
 
     # Print decimal values of C1
     decimal_values = list(C1Sent)
@@ -554,6 +569,7 @@ def keyExchangeHandle_decryptKey():
         print_decimal_values("EncryptedKey from USB", EncryptedKey)
         DecryptedKey = decrypt_aes_ecb(Sk_truncate, EncryptedKey)
         print_decimal_values("DecryptedKey:", DecryptedKey)
+        close_hid_device(usb_hid)
         ret = SUCCESS
     else:
         ret = FAIL
@@ -597,7 +613,8 @@ def startAppHandle():
                 pyAesCrypt.decryptStream(fIn, fOut, DecryptedKey, bufferSize)
         except ValueError:
             remove(decryptedFile)
-            messagebox.showinfo("Decrypt failed!")
+            messagebox.showerror("Decrypt failed!")
+            sys.exit(FAIL)
     if platform.system() == 'Linux':
         os.system(f'chmod +x {decryptedFile}')
 
@@ -610,8 +627,6 @@ def startAppHandle():
     # Set the MyEngine PID in shared memory
     shared_memory[MYENGINE_IDX] = os.getpid()
 
-    userProc = Process(target=userProcRun, args=(decryptedFileRunPath, shared_memory, ))
-    userProc.start()
 
     supervisorProc = Process(target=supervisorProcRun, args=(decryptedFileRunPath, shared_memory, ))
     supervisorProc.start()
@@ -624,15 +639,10 @@ def startAppHandle():
 # supervisor Process Handle
 def supervisorProcRun(runPath, shared_memory):
     shared_memory[SUPERVISOR_IDX] = os.getpid()
-    log_pid(shared_memory, "supervisorProc")
-    check_and_terminate(shared_memory, shared_memory[SUPERVISOR_IDX], runPath)
-    
-def userProcRun(runPath, shared_memory):
-    shared_memory[USERPROC_IDX] = os.getpid()
     userApp = subprocess.Popen([runPath])
     shared_memory[USERAPP_IDX] = userApp.pid
-    log_pid(shared_memory, "userProc")
-    check_and_terminate(shared_memory, shared_memory[USERPROC_IDX], runPath)
+    log_pid(shared_memory, "supervisorProc")
+    check_and_terminate(shared_memory, shared_memory[SUPERVISOR_IDX], runPath)
 
 def coreRun():
     global r
@@ -675,8 +685,9 @@ if __name__ == "__main__":
         encryptedFile = sys.argv[1]
         if isEncryptedFile(encryptedFile) == True:
             if SUCCESS == coreRun():
-                exit(SUCCESS)
+                sys.exit(SUCCESS)
             else:
-                exit(FAIL)
+                sys.exit(FAIL)
         else:
-            messagebox.showinfo("Invalid file")
+            messagebox.showerror("Invalid file")
+            sys.exit(FAIL)
