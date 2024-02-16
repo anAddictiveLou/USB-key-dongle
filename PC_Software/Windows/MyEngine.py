@@ -199,23 +199,24 @@ def open_hid_device(vendor_id, product_id, serial_number):
 
         device = hid.device()
         device.open_path(device_info['path'])
-        print("Device opened successfully.")
+        # print("Device opened successfully.")
         return device
 
     except Exception as e:
-        print(f"Error opening the device: {e}")
+        # print(f"Error opening the device: {e}")
         return None
 
 def close_hid_device(device):
     try:
         if device:
             device.close()
-            print("Device closed successfully.")
+            # print("Device closed successfully.")
         else:
             print("No device to close.")
 
     except Exception as e:
-        print(f"Error closing the device: {e}")
+        sys.exit(1)
+        # gprint(f"Error closing the device: {e}")
 
 def recv_packet_from_hid_device(device, packet_size):
     try:
@@ -232,7 +233,7 @@ def recv_packet_from_hid_device(device, packet_size):
 def send_packet_to_hid_device(device, packet_data):
     try:
         device.write(packet_data)
-        print(f"Packet written to the device successfully.")
+        # prin(f"Packet written to the device successfully.")
     except Exception as e:
         print(f"Error sending data to the device: {e}")
 
@@ -295,21 +296,6 @@ def print_decimal_values(name, data):
     decimal_values = list(data)
     print(f"{name} in decimal: {decimal_values}")
 
-def log_pid(shared_memory, proc_name):
-    idx = 0
-    while idx < len(shared_memory):
-        pid = shared_memory[idx]
-        if pid == 0:
-            idx = 0  # Reset the index to start again
-            continue
-        idx+=1
-
-    print("")
-    print("Main proc from ", proc_name, shared_memory[MYENGINE_IDX])
-    print("Supervisor PID from ", proc_name, shared_memory[SUPERVISOR_IDX])
-    print("UserApp PID from ", proc_name, shared_memory[USERAPP_IDX])
-    print("")
-
 # utility function
 def isEncryptedFile(filePath):
     _, file_extension = os.path.splitext(filePath)
@@ -323,7 +309,7 @@ def createOutputFileName(filePath):
     elif platform.system() == 'Linux':
         newExtension = 'out'
     else:
-        print("Unsupported operating system")
+        # print("Unsupported operating system")
         return None
     newFileName = filename_without_extension + '.' + newExtension
     newFilePath = os.path.join(directory, newFileName)
@@ -345,7 +331,7 @@ def integrityVerifyHandle_sendC1():
 
     # Print decimal values of C1
     decimal_values = list(C1Sent)
-    print("C1 in decimal:", decimal_values)
+    # print("C1 in decimal:", decimal_values)
 
     # Call the function to send the 21-byte packet and receive data from the HID device
     send_packet_to_hid_device(usb_hid, C1Sent)
@@ -373,7 +359,7 @@ def integrityVerifyHandle_recvC2():
         C2 = C2Recv[1:]
         # Print decimal values of C1
         decimal_values = list(C2)
-        print("C2 from USB in decimal: ", decimal_values)
+        # print("C2 from USB in decimal: ", decimal_values)
         # Convert strings to bytes
         byteSN = serial_number.encode('utf-8')
         hashedByteSN = compute_sha1_hash(byteSN)
@@ -433,20 +419,20 @@ def mutualAuthenticationHandle_genR_sendV_VP():
     byte_r_concat_P = concat_arrays(byte_r, byte_P)
     V = compute_sha1_hash(byte_r_concat_P)
     decimal_values = list(V)
-    print("V from PC in decimal: ", decimal_values)
+    # print("V from PC in decimal: ", decimal_values)
     V_xor_r = bitwise_xor(V, byte_r)
     V_xor_r_Prefix = bytes([0x04])
     V_xor_r_Sent = concat_arrays(V_xor_r_Prefix, V_xor_r)
     V_xor_r_first_byte = bytes([0x00])
     V_xor_r_Sent = concat_arrays(V_xor_r_first_byte, V_xor_r_Sent)
     decimal_values = list(V_xor_r_Sent)
-    print("V xor r packet from PC in decimal: ", decimal_values)
+    # print("V xor r packet from PC in decimal: ", decimal_values)
     send_packet_to_hid_device(usb_hid, V_xor_r_Sent)
 
     # verify V
     V_test = bitwise_xor(V_xor_r, byte_r)
     decimal_values = list(V_test)
-    print("V test from PC in decimal: ", decimal_values)
+    # print("V test from PC in decimal: ", decimal_values)
 
     # Compute Vp and send Vp xor r
     byte_R_concat_P = concat_arrays(R, byte_P)
@@ -457,18 +443,18 @@ def mutualAuthenticationHandle_genR_sendV_VP():
     Vp_xor_r_first_byte = bytes([0x00])
     Vp_xor_r_Sent = concat_arrays(Vp_xor_r_first_byte, Vp_xor_r_Sent)
     decimal_values = list(Vp_xor_r_Sent)
-    print("Vp xor r packet from PC in decimal: ", decimal_values)
+    # print("Vp xor r packet from PC in decimal: ", decimal_values)
     send_packet_to_hid_device(usb_hid, Vp_xor_r_Sent)
 
     # Send R to USB
     decimal_values = list(R)
-    print("R from PC in decimal: ", decimal_values)
+    # print("R from PC in decimal: ", decimal_values)
     R_Prefix = bytes([0x06])
     R_Sent = concat_arrays(R_Prefix, R)
     R_test = bytes([0x00])
     R_Sent = concat_arrays(R_test, R_Sent)
     decimal_values = list(R_Sent)
-    print("R from PC in decimal: ", decimal_values)
+    # print("R from PC in decimal: ", decimal_values)
     send_packet_to_hid_device(usb_hid, R_Sent)
     return ret
 
@@ -480,27 +466,27 @@ def mutualAuthenticationHandle_recvC4_verifyR():
     byte_r = r.encode('utf-8')
     Hr = compute_sha1_hash(byte_r)
     decimal_values = list(Hr)
-    print("Hr from PC in decimal: ", decimal_values)
+    # print("Hr from PC in decimal: ", decimal_values)
     Sk = bitwise_xor(Hr, R)
-    print_decimal_values("Sk", Sk)
+    # print_decimal_values("Sk", Sk)
     # Use Sk and R truncate 16bytes instead
     Sk_truncate = Sk[:16]
     Sk_truncate = bytes(Sk_truncate)
 
     # Cal R = De(Sk, C4)
     C4Test = encrypt_aes_ecb(Sk_truncate, R)
-    print_decimal_values("C4 from PC generate by PC for testing", C4Test)
+    # print_decimal_values("C4 from PC generate by PC for testing", C4Test)
     R_from_USB_test = decrypt_aes_ecb(Sk_truncate, C4Test)
-    print_decimal_values("R_from_USB generate by PC for testing", R_from_USB_test)
+    # print_decimal_values("R_from_USB generate by PC for testing", R_from_USB_test)
 
     C4Recv = recv_packet_from_hid_device(usb_hid, 21)
     if C4Recv[0] == 0x07:
         C4 = bytes(C4Recv[5:])
-        print_decimal_values("C4 from USB", C4)
+        # print_decimal_values("C4 from USB", C4)
         R_from_USB = decrypt_aes_ecb(Sk_truncate, C4)
-        print_decimal_values("R_from_USB", R_from_USB)
+        # print_decimal_values("R_from_USB", R_from_USB)
         if R_from_USB == R:
-            print("R from USB is verified", R_from_USB)
+            # print("R from USB is verified", R_from_USB)
             ret = SUCCESS
         else:
             ret = FAIL
@@ -533,14 +519,14 @@ def keyExchangeHandle_reqKey():
 
     # Compute H(R) xor SN
     HR = compute_sha1_hash(R)
-    print_decimal_values("HR from PC", HR)
+    # print_decimal_values("HR from PC", HR)
     byteSN = serial_number.encode('utf-8')
     HR_xor_SN = bitwise_xor(HR, byteSN)
-    print_decimal_values("HR_xor_SN from PC", HR_xor_SN)
+    # # print_decimal_values("HR_xor_SN from PC", HR_xor_SN)
     HR_xor_SN_Prefix = bytes([0x08])
     HR_xor_SN_Sent = concat_arrays(HR_xor_SN_Prefix, HR_xor_SN)
     HR_xor_SN_Sent = concat_arrays(bytes([0x00]), HR_xor_SN_Sent)
-    print_decimal_values("HR_xor_SN_Sent from PC", HR_xor_SN_Sent)
+    # # print_decimal_values("HR_xor_SN_Sent from PC", HR_xor_SN_Sent)
     send_packet_to_hid_device(usb_hid, HR_xor_SN_Sent)
 
     return ret
@@ -557,12 +543,12 @@ def keyExchangeHandle_decryptKey():
 
     # Decrypt Key
     EncryptedKeyRecv = recv_packet_from_hid_device(usb_hid, 21)
-    print_decimal_values("EncryptedKeyRecv from USB", EncryptedKeyRecv)
+    # print_decimal_values("EncryptedKeyRecv from USB", EncryptedKeyRecv)
     if EncryptedKeyRecv[0] == 0x09:
         EncryptedKey = bytes(EncryptedKeyRecv[5:])
-        print_decimal_values("EncryptedKey from USB", EncryptedKey)
+        # print_decimal_values("EncryptedKey from USB", EncryptedKey)
         DecryptedKey = decrypt_aes_ecb(Sk_truncate, EncryptedKey)
-        print_decimal_values("DecryptedKey:", DecryptedKey)
+        # print_decimal_values("DecryptedKey:", DecryptedKey)
         close_hid_device(usb_hid)
         ret = SUCCESS
     else:
@@ -613,7 +599,7 @@ def check_and_terminate(user_app_pid, supervisor_pid, run_file):
                     if psutil.pid_exists(user_app_pid):
                         os.kill(user_app_pid, signal.SIGTERM)
                         time.sleep(2)
-                print(f"Process with PID {pid} has died. Terminating all processes.")
+                # print(f"Process with PID {pid} has died. Terminating all processes.")
                 if not psutil.pid_exists(user_app_pid):
                     os.remove(run_file)
                 sys.exit(0)

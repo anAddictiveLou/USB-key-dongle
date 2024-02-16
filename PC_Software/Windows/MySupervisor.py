@@ -2,6 +2,7 @@ import os
 import signal
 import sys
 import psutil
+import time
 
 def supervisor_proc_run(run_path, my_engine_pid, user_app_pid):
     while True:
@@ -9,7 +10,7 @@ def supervisor_proc_run(run_path, my_engine_pid, user_app_pid):
             print(f"MyEngine with PID {my_engine_pid} has died. Terminating all processes.")
             if psutil.pid_exists(user_app_pid):
                 os.kill(user_app_pid, signal.SIGTERM)
-                os.system('sleep 1')  # Linux testing
+                time.sleep(1)
                 if not psutil.pid_exists(user_app_pid):
                     os.remove(run_path)
             sys.exit(0)
