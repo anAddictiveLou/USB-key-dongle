@@ -67,6 +67,18 @@ DecryptedKey = None
 r_file_path = "encrypted_data.txt.aes"
 r_file_password = "your_secure_password"
 
+def sigchld_handler(signum, frame):
+    while True:
+        try:
+            # -1 means any child process
+            pid, status = os.waitpid(-1, os.WNOHANG)
+            if pid == 0:
+                break  # No more child processes to reap
+            else:
+                print(f"Child process {pid} terminated with status {status}")
+        except OSError:
+            break
+
 def get_r_value_from_file(file_path, password):
     try:
         return read_encrypted_string(file_path, password)
@@ -271,6 +283,7 @@ def check_and_terminate(shared_memory, calling_pid, run_file):
                     elif pid == supervisor_pid:
                         if psutil.pid_exists(user_app_pid):
                             os.kill(user_app_pid, signal.SIGTERM)
+                            os.system('sleep 2') # linux testing
                     print(f"Process with PID {pid} has died. Terminating all processes.")
                     if not psutil.pid_exists(user_app_pid):
                         os.remove(run_file)
@@ -289,6 +302,7 @@ def check_and_terminate(shared_memory, calling_pid, run_file):
                 print(f"MyEngine with PID {my_engine_pid} has died. Terminating all processes.")
                 if psutil.pid_exists(user_app_pid):
                     os.kill(user_app_pid, signal.SIGTERM)
+                    os.system('sleep 1') # linux testing
                     if not psutil.pid_exists(user_app_pid):
                         os.remove(run_file)
                     close_hid_device(usb_hid)
@@ -627,6 +641,9 @@ def startAppHandle():
     # Set the MyEngine PID in shared memory
     shared_memory[MYENGINE_IDX] = os.getpid()
 
+    if platform.system() == 'Linux':
+        #sigchld handler
+        signal.signal(signal.SIGCHLD, sigchld_handler)
 
     supervisorProc = Process(target=supervisorProcRun, args=(decryptedFileRunPath, shared_memory, ))
     supervisorProc.start()
@@ -639,6 +656,9 @@ def startAppHandle():
 # supervisor Process Handle
 def supervisorProcRun(runPath, shared_memory):
     shared_memory[SUPERVISOR_IDX] = os.getpid()
+    if platform.system() == 'Linux':
+        #sigchld handler
+        signal.signal(signal.SIGCHLD, sigchld_handler)
     userApp = subprocess.Popen([runPath])
     shared_memory[USERAPP_IDX] = userApp.pid
     log_pid(shared_memory, "supervisorProc")
