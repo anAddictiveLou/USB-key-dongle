@@ -16,6 +16,6 @@
   - pyinstaller --specpath ./Linux/spec --distpath ./Linux/dist --workpath ./Linux/build --onefile MyEncrypt.py
   - pyinstaller --specpath ./Linux/spec --distpath ./Linux/dist --workpath ./Linux/build --onefile MyEngine.py
   - pyinstaller --specpath ./Linux/spec --distpath ./Linux/dist --workpath ./Linux/build --onefile MySupervisor.py
-- After building successfully, applications are located at "/{OS}/dir/" directory. 
+- After building successfully, applications are located at "./Windows/dist/" or "./Linux/dist/" directory. 
 ### USB_Firmware
   - STM32Cube_IDE FW_F1 V1.8.5
