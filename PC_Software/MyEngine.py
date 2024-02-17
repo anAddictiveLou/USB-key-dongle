@@ -654,7 +654,11 @@ def startAppHandle():
     time.sleep(1)
 
     # Start supervisor process
-    supervisor_cmd = ['.\dist\MySupervisor.exe', decryptedFileRunPath, str(my_engine_pid), str(user_app_pid)]
+    if platform.system() == 'Windows':
+        supervisor_cmd = ['.\dist\MySupervisor.exe', decryptedFileRunPath, str(my_engine_pid), str(user_app_pid)]
+    elif platform.system() == 'Linux':
+        supervisor_cmd = ['python3', 'MySupervisor.py', decryptedFileRunPath, str(my_engine_pid), str(user_app_pid)]
+
     supervisor_proc = subprocess.Popen(supervisor_cmd)
     supervisor_pid = supervisor_proc.pid
 
