@@ -1,6 +1,12 @@
 # This is N4 graduation thesis project.
-## how to build
+## Introduction
+- PC Software: Python code for computer software(MyEngine, MyEncrypt, MySupervisor)
+  - Linux: build directory for software on Linux OS.
+  - Windows: build directory for software on Windows OS.
+- USB Firmware: C code for USB Dongle
+## How to build
 ### PC_Software
+- Install pyinstaller module:
   - pip3 install pyinstaller
 - For Windows:
   - pyinstaller --specpath ./Windows/spec --distpath ./Windows/dist --workpath ./Windows/build --onefile MyEncrypt.py
