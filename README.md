@@ -1,5 +1,5 @@
 # Project Title: Design a USB Dongle for software protection.
-## Introduction
+## Source directory
 - PC Software: Python code for computer software(MyEngine, MyEncrypt, MySupervisor)
   - Linux: build directory for software on Linux OS.
   - Windows: build directory for software on Windows OS.
