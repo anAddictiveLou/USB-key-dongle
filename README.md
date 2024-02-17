@@ -6,7 +6,7 @@
 - USB Firmware: C code for USB Dongle
 ## How to build
 ### PC_Software
-- Install pyinstaller module:
+- Make sure you have Python3 installed on your system and install pyinstaller module:
   - pip3 install pyinstaller
 - For Windows:
   - pyinstaller --specpath ./Windows/spec --distpath ./Windows/dist --workpath ./Windows/build --onefile MyEncrypt.py
