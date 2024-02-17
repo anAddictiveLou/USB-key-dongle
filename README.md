@@ -1,4 +1,4 @@
-# This is N4 graduation thesis project.
+# Project Title: Design a USB Dongle for software protection.
 ## Introduction
 - PC Software: Python code for computer software(MyEngine, MyEncrypt, MySupervisor)
   - Linux: build directory for software on Linux OS.
