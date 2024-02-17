@@ -2,11 +2,11 @@
 ## how to build
 ### PC_Software
   - pip3 install pyinstaller
-  + For Windows:
+- For Windows:
   - pyinstaller --specpath ./Windows/spec --distpath ./Windows/dist --workpath ./Windows/build --onefile MyEncrypt.py
   - pyinstaller --specpath ./Windows/spec --distpath ./Windows/dist --workpath ./Windows/build --onefile MyEngine.py
   - pyinstaller --specpath ./Windows/spec --distpath ./Windows/dist --workpath ./Windows/build --onefile MySupervisor.py
-  + For Linux:
+- For Linux:
   - pyinstaller --specpath ./Linux/spec --distpath ./Linux/dist --workpath ./Linux/build --onefile MyEncrypt.py
   - pyinstaller --specpath ./Linux/spec --distpath ./Linux/dist --workpath ./Linux/build --onefile MyEngine.py
   - pyinstaller --specpath ./Linux/spec --distpath ./Linux/dist --workpath ./Linux/build --onefile MySupervisor.py
