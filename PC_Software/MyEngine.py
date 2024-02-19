@@ -68,46 +68,6 @@ DecryptedKey = None
 r_file_path = "encrypted_data.txt.aes"
 r_file_password = "your_secure_password"
 
-def subprocess_args(include_stdout=True):
-    # The following is true only on Windows.
-    if hasattr(subprocess, 'STARTUPINFO'):
-        # On Windows, subprocess calls will pop up a command window by default
-        # when run from Pyinstaller with the ``--noconsole`` option. Avoid this
-        # distraction.
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        # Windows doesn't search the path by default. Pass it an environment so
-        # it will.
-        env = os.environ
-    else:
-        si = None
-        env = None
-
-    # ``subprocess.check_output`` doesn't allow specifying ``stdout``::
-    #
-    #   Traceback (most recent call last):
-    #     File "test_subprocess.py", line 58, in <module>
-    #       **subprocess_args(stdout=None))
-    #     File "C:\Python27\lib\subprocess.py", line 567, in check_output
-    #       raise ValueError('stdout argument not allowed, it will be overridden.')
-    #   ValueError: stdout argument not allowed, it will be overridden.
-    #
-    # So, add it only if it's needed.
-    if include_stdout:
-        ret = {'stdout': subprocess.PIPE}
-    else:
-        ret = {}
-
-    # On Windows, running this from the binary produced by Pyinstaller
-    # with the ``--noconsole`` option requires redirecting everything
-    # (stdin, stdout, stderr) to avoid an OSError exception
-    # "[Error 6] the handle is invalid."
-    ret.update({'stdin': subprocess.PIPE,
-                'stderr': subprocess.PIPE,
-                'startupinfo': si,
-                'env': env })
-    return ret
-
 def sigchld_handler(signum, frame):
     while True:
         try:
@@ -119,46 +79,6 @@ def sigchld_handler(signum, frame):
                 print(f"Child process {pid} terminated with status {status}")
         except OSError:
             break
-
-def get_r_value_from_file(file_path, password):
-    try:
-        return read_encrypted_string(file_path, password)
-    except Exception as e:
-        print("Error:", e)
-
-def put_r_value_to_file(file_path, password, value):
-    try:
-        write_encrypt_string(file_path, password, value)
-        print("File updated and encrypted successfully.")
-    except Exception as e:
-        print("Error:", e)
-
-def encrypt_file(password, input_file, output_file):
-    bufferSize = 64 * 1024
-    pyAesCrypt.encryptFile(input_file, output_file, password, bufferSize)
-
-def decrypt_file(password, input_file, output_file):
-    bufferSize = 64 * 1024
-    pyAesCrypt.decryptFile(input_file, output_file, password, bufferSize)
-
-def read_encrypted_string(file_path, password):
-    decrypt_temp_file = "temp_decrypted.txt"
-    decrypt_file(password, file_path, decrypt_temp_file)
-
-    with open(decrypt_temp_file, "r") as f:
-        decrypted_string = f.read()
-
-    os.remove(decrypt_temp_file)
-    return decrypted_string
-
-def write_encrypt_string(file_path, password, new_string):
-    encrypt_temp_file = "temp_encrypted.txt"
-
-    with open(encrypt_temp_file, "w") as f:
-        f.write(new_string)
-
-    encrypt_file(password, encrypt_temp_file, file_path)
-    os.remove(encrypt_temp_file)
 
 def encrypt_aes_ecb(key, plaintext):
     # Ensure the key length is correct (128 bits = 16 bytes)
@@ -574,43 +494,103 @@ def keyExchangeHandle():
                 ret = FAIL
     return ret
 
+def kill_process_by_name(process_name):
+    for process in psutil.process_iter(['pid', 'name']):
+        if process.info['name'] == process_name:
+            try:
+                pid = process.info['pid']
+                process_obj = psutil.Process(pid)
+                process_obj.terminate()
+                process_obj.wait(5)  # Wait for termination
+                print(f"Process {process_name} with PID {pid} terminated.")
+            except Exception as e:
+                print(f"Error terminating process {process_name}: {e}")
 
-def terminate_all_processes(user_app_pid, supervisor_pid):
-    # Terminate all processes
-    if psutil.pid_exists(user_app_pid):
-        os.kill(user_app_pid, signal.SIGTERM)
+def wait_process_boot_in_timeout(process_name, timeout_seconds):
+    start_time = time.time()
 
-    if psutil.pid_exists(supervisor_pid):
-        os.kill(supervisor_pid, signal.SIGTERM)
+    while time.time() - start_time < timeout_seconds:
+        # Check if the process is still running
+        if any(process.info['name'] == process_name for process in psutil.process_iter(['name'])):
+            # print(f"Process {process_name} started.")
+            return True
 
-def check_and_terminate(user_app_pid, supervisor_pid, run_file):
-    global vendor_id
-    global product_id
-    global serial_number
-    # Exclude the calling process PID
-    process_pids = [user_app_pid, supervisor_pid]
+        # Wait for a short duration before checking again
+        time.sleep(0.1)
+
+    # print(f"Timeout reached. {process_name} did not start within {timeout_seconds} seconds.")
+    return False
+
+def wait_process_dead_in_timeout(process_name, timeout_seconds):
+    start_time = time.time()
+
+    while time.time() - start_time < timeout_seconds:
+        # Check if the process is still running
+        if not any(process.info['name'] == process_name for process in psutil.process_iter(['name'])):
+            print(f"Process {process_name} terminated.")
+            return True
+
+        # Wait for a short duration before checking again
+        time.sleep(0.1)
+
+    print(f"Timeout reached. Unable to terminate {process_name} within {timeout_seconds} seconds.")
+    return False
+
+def is_process_dead(process_name):
+    found_processes = []
+
+    for process in psutil.process_iter(['pid', 'name']):
+        if process.info['name'] == process_name:
+            found_processes.append(process.info)
+
+    if found_processes:
+        for found_process in found_processes:
+            if not psutil.pid_exists(found_process['pid']):
+                print(f"Process {process_name} with PID {found_process['pid']} is dead.")
+                return True  # At least one process is dead
+            # print(f"Process {process_name} with PID {found_process['pid']} alive.")
+        return False  # All processes are still running
+
+    print(f"No process found with the name {process_name}.")
+    return True  # Process is dead
+
+def is_usb_device_connected(vendor_id, product_id, serial_number):
+    devices = hid.enumerate()
+    for info in devices:
+        if (
+            info['vendor_id'] == vendor_id
+            and info['product_id'] == product_id
+            and info['serial_number'] == serial_number
+        ):
+            return True
+    return False
+
+def check_and_terminate_by_name(user_app_name, supervisor_name, vendor_id, product_id, serial_number):
+    # Exclude the calling process name
     while True:
-        for pid in process_pids:
-            if not psutil.pid_exists(pid):
-                if pid == user_app_pid:
-                    if psutil.pid_exists(supervisor_pid):
-                        os.kill(supervisor_pid, signal.SIGTERM)
-                elif pid == supervisor_pid:
-                    if psutil.pid_exists(user_app_pid):
-                        os.kill(user_app_pid, signal.SIGTERM)
-                        time.sleep(2)
-                # print(f"Process with PID {pid} has died. Terminating all processes.")
-                if not psutil.pid_exists(user_app_pid):
-                    os.remove(run_file)
-                sys.exit(0)
-        if not is_usb_device_connected(vendor_id, product_id, serial_number):
-            terminate_all_processes(user_app_pid, supervisor_pid)
-            messagebox.showerror("USB is plugged out!")
-            time.sleep(1)
-            if not psutil.pid_exists(user_app_pid):
-                os.remove(run_file)
-            sys.exit(0)
+        if is_process_dead(user_app_name):
+            print(user_app_name, 'died')
+            if not is_process_dead(supervisor_name):
+                kill_process_by_name(supervisor_name)
+                wait_process_dead_in_timeout(supervisor_name, 5)
+            return
 
+        if is_process_dead(supervisor_name):
+            print(supervisor_name, 'died')
+            if not is_process_dead(user_app_name):
+                kill_process_by_name(user_app_name)
+                wait_process_dead_in_timeout(user_app_name, 5)
+            return
+
+        if not is_usb_device_connected(vendor_id, product_id, serial_number):
+            # Kill all processes
+            messagebox.showerror("USB is plugged out!")
+            kill_process_by_name(user_app_name)
+            wait_process_dead_in_timeout(user_app_name, 5)
+            kill_process_by_name(supervisor_name)
+            wait_process_dead_in_timeout(supervisor_name, 5)
+            return
+            
 def startAppHandle():
     ret = SUCCESS
     global decryptedFile
@@ -630,7 +610,7 @@ def startAppHandle():
                 pyAesCrypt.decryptStream(fIn, fOut, DecryptedKey, bufferSize)
         except ValueError:
             remove(decryptedFile)
-            messagebox.showerror("Decrypt failed!")
+            messagebox.showerror("Unauthorized Access !")
             sys.exit(FAIL)
     if platform.system() == 'Linux':
         os.system(f'chmod +x {decryptedFile}')
@@ -639,38 +619,37 @@ def startAppHandle():
     mp.set_start_method('spawn')
     decryptedFileRunPath = os.path.abspath(decryptedFile)
 
-    # Set the MyEngine PID in shared memory
-    my_engine_pid = os.getpid()
-
     if platform.system() == 'Linux':
         #sigchld handler
         signal.signal(signal.SIGCHLD, sigchld_handler)
 
+    my_engine_name = 'MyEngine.exe'
+    user_app_name = 'MyEncrypt_copy.exe.exe' #decryptedFileRunPath
+    my_supervisor_name = 'MySupervisor.exe'
 
     # Start user process
-    userApp = subprocess.Popen([decryptedFileRunPath])
-    user_app_pid = userApp.pid
-
-    time.sleep(1)
-
+    subprocess.Popen([decryptedFileRunPath])
+    
+    wait_process_boot_in_timeout(user_app_name, 5)
+    
     # Start supervisor process
     if platform.system() == 'Windows':
-        supervisor_cmd = ['.\dist\MySupervisor.exe', decryptedFileRunPath, str(my_engine_pid), str(user_app_pid)]
+        supervisor_cmd = ['.\dist\MySupervisor.exe', decryptedFileRunPath, my_engine_name, user_app_name]
     elif platform.system() == 'Linux':
-        supervisor_cmd = ['python3', 'MySupervisor.py', decryptedFileRunPath, str(my_engine_pid), str(user_app_pid)]
+        supervisor_cmd = ['python3', 'MySupervisor.py', decryptedFileRunPath, my_engine_name, user_app_name]
 
-    supervisor_proc = subprocess.Popen(supervisor_cmd)
-    supervisor_pid = supervisor_proc.pid
+    subprocess.Popen(supervisor_cmd)
 
-    time.sleep(1)
+    wait_process_boot_in_timeout(supervisor_cmd, 5)
 
-    check_and_terminate(user_app_pid, supervisor_pid, decryptedFileRunPath)
+    check_and_terminate_by_name(user_app_name, my_supervisor_name, vendor_id, product_id, serial_number)
+    if is_process_dead(user_app_name):
+        os.remove(decryptedFileRunPath)
     return ret
 
 def coreRun():
     global r
     ret = SUCCESS
-    #r = get_r_value_from_file(r_file_path, r_file_password)
     state = INTERGRITY_VERIFY
     while state != FINISH:
         if state == INTERGRITY_VERIFY:
