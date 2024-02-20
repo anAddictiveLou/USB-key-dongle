@@ -45,29 +45,33 @@ def kill_process_by_name(process_name):
             except Exception as e:
                 print(f"Error terminating process {process_name}: {e}")
 
-def is_process_dead(process_name):
-    found_processes = []
+def is_process_dead(process_name, found_processes):
+    new_processes = []
 
     for process in psutil.process_iter(['pid', 'name']):
         if process.info['name'] == process_name:
-            found_processes.append(process.info)
+            pid = process.info['pid']
+            if pid not in [found_process['pid'] for found_process in found_processes]:
+                new_processes.append({'pid': pid, 'name': process_name})
+                found_processes.append({'pid': pid, 'name': process_name})
 
     if found_processes:
         for found_process in found_processes:
             if not psutil.pid_exists(found_process['pid']):
-                print(f"Process {process_name} with PID {found_process['pid']} is dead.")
+                # print(f"Process {process_name} with PID {found_process['pid']} is dead.")
                 return True  # At least one process is dead
-
-        print(f"All processes with the name {process_name} are still running.")
+            # print(f"Process {process_name} with PID {found_process['pid']} alive.")
         return False  # All processes are still running
 
-    print(f"No process found with the name {process_name}.")
+    # print(f"No process found with the name {process_name}.")
     return True  # Process is dead
 
 def supervisor_proc_run(my_engine_name, user_app_name):
+    my_engine_processes = []
+    user_app_processes = []
     while True:
-        if is_process_dead(my_engine_name):
-            if not is_process_dead(user_app_name):
+        if is_process_dead(my_engine_name, my_engine_processes):
+            if not is_process_dead(user_app_name, user_app_processes):
                 kill_process_by_name(user_app_name)
                 wait_process_dead_in_timeout(user_app_name, 5)
                 return
@@ -82,5 +86,6 @@ if __name__ == "__main__":
     user_app_name = sys.argv[3]
     
     supervisor_proc_run(my_engine_name, user_app_name)
-    if is_process_dead(user_app_name):
+    user_app_processes = []
+    if is_process_dead(user_app_name, user_app_processes):
         os.remove(run_path)

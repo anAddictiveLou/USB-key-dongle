@@ -4,6 +4,7 @@ import signal
 import io
 from os import stat, remove
 from multiprocessing import Process
+import threading
 import time
 import multiprocessing as mp
 import subprocess
@@ -351,7 +352,7 @@ def mutualAuthenticationHandle_genR_sendV_VP():
 
     # verify V
     V_test = bitwise_xor(V_xor_r, byte_r)
-    decimal_values = list(V_test)
+    # decimal_values = list(V_test)
     # print("V test from PC in decimal: ", decimal_values)
 
     # Compute Vp and send Vp xor r
@@ -362,18 +363,18 @@ def mutualAuthenticationHandle_genR_sendV_VP():
     Vp_xor_r_Sent = concat_arrays(Vp_xor_r_Prefix, Vp_xor_r)
     Vp_xor_r_first_byte = bytes([0x00])
     Vp_xor_r_Sent = concat_arrays(Vp_xor_r_first_byte, Vp_xor_r_Sent)
-    decimal_values = list(Vp_xor_r_Sent)
+    # decimal_values = list(Vp_xor_r_Sent)
     # print("Vp xor r packet from PC in decimal: ", decimal_values)
     send_packet_to_hid_device(usb_hid, Vp_xor_r_Sent)
 
     # Send R to USB
-    decimal_values = list(R)
+    # decimal_values = list(R)
     # print("R from PC in decimal: ", decimal_values)
     R_Prefix = bytes([0x06])
     R_Sent = concat_arrays(R_Prefix, R)
     R_test = bytes([0x00])
     R_Sent = concat_arrays(R_test, R_Sent)
-    decimal_values = list(R_Sent)
+    # decimal_values = list(R_Sent)
     # print("R from PC in decimal: ", decimal_values)
     send_packet_to_hid_device(usb_hid, R_Sent)
     return ret
@@ -502,7 +503,7 @@ def kill_process_by_name(process_name):
                 process_obj = psutil.Process(pid)
                 process_obj.terminate()
                 process_obj.wait(5)  # Wait for termination
-                print(f"Process {process_name} with PID {pid} terminated.")
+                # print(f"Process {process_name} with PID {pid} terminated.")
             except Exception as e:
                 print(f"Error terminating process {process_name}: {e}")
 
@@ -527,31 +528,34 @@ def wait_process_dead_in_timeout(process_name, timeout_seconds):
     while time.time() - start_time < timeout_seconds:
         # Check if the process is still running
         if not any(process.info['name'] == process_name for process in psutil.process_iter(['name'])):
-            print(f"Process {process_name} terminated.")
+            # print(f"Process {process_name} terminated.")
             return True
 
         # Wait for a short duration before checking again
         time.sleep(0.1)
 
-    print(f"Timeout reached. Unable to terminate {process_name} within {timeout_seconds} seconds.")
+    # print(f"Timeout reached. Unable to terminate {process_name} within {timeout_seconds} seconds.")
     return False
 
-def is_process_dead(process_name):
-    found_processes = []
+def is_process_dead(process_name, found_processes):
+    new_processes = []
 
     for process in psutil.process_iter(['pid', 'name']):
         if process.info['name'] == process_name:
-            found_processes.append(process.info)
+            pid = process.info['pid']
+            if pid not in [found_process['pid'] for found_process in found_processes]:
+                new_processes.append({'pid': pid, 'name': process_name})
+                found_processes.append({'pid': pid, 'name': process_name})
 
     if found_processes:
         for found_process in found_processes:
             if not psutil.pid_exists(found_process['pid']):
-                print(f"Process {process_name} with PID {found_process['pid']} is dead.")
+                # print(f"Process {process_name} with PID {found_process['pid']} is dead.")
                 return True  # At least one process is dead
             # print(f"Process {process_name} with PID {found_process['pid']} alive.")
         return False  # All processes are still running
 
-    print(f"No process found with the name {process_name}.")
+    # print(f"No process found with the name {process_name}.")
     return True  # Process is dead
 
 def is_usb_device_connected(vendor_id, product_id, serial_number):
@@ -567,17 +571,17 @@ def is_usb_device_connected(vendor_id, product_id, serial_number):
 
 def check_and_terminate_by_name(user_app_name, supervisor_name, vendor_id, product_id, serial_number):
     # Exclude the calling process name
+    user_app_processes = []
+    supervisor_processes = []
     while True:
-        if is_process_dead(user_app_name):
-            print(user_app_name, 'died')
-            if not is_process_dead(supervisor_name):
+        if is_process_dead(user_app_name, user_app_processes):
+            if not is_process_dead(supervisor_name, supervisor_processes):
                 kill_process_by_name(supervisor_name)
                 wait_process_dead_in_timeout(supervisor_name, 5)
             return
 
-        if is_process_dead(supervisor_name):
-            print(supervisor_name, 'died')
-            if not is_process_dead(user_app_name):
+        if is_process_dead(supervisor_name, supervisor_processes):
+            if not is_process_dead(user_app_name, user_app_processes):
                 kill_process_by_name(user_app_name)
                 wait_process_dead_in_timeout(user_app_name, 5)
             return
@@ -590,6 +594,8 @@ def check_and_terminate_by_name(user_app_name, supervisor_name, vendor_id, produ
             kill_process_by_name(supervisor_name)
             wait_process_dead_in_timeout(supervisor_name, 5)
             return
+        
+        time.sleep(0.1)
             
 def startAppHandle():
     ret = SUCCESS
@@ -614,7 +620,7 @@ def startAppHandle():
             sys.exit(FAIL)
     if platform.system() == 'Linux':
         os.system(f'chmod +x {decryptedFile}')
-
+        
     # run program
     mp.set_start_method('spawn')
     decryptedFileRunPath = os.path.abspath(decryptedFile)
@@ -624,7 +630,7 @@ def startAppHandle():
         signal.signal(signal.SIGCHLD, sigchld_handler)
 
     my_engine_name = 'MyEngine.exe'
-    user_app_name = 'MyEncrypt_copy.exe.exe' #decryptedFileRunPath
+    user_app_name = os.path.basename(decryptedFileRunPath) #decryptedFileRunPath
     my_supervisor_name = 'MySupervisor.exe'
 
     # Start user process
@@ -634,7 +640,7 @@ def startAppHandle():
     
     # Start supervisor process
     if platform.system() == 'Windows':
-        supervisor_cmd = ['.\dist\MySupervisor.exe', decryptedFileRunPath, my_engine_name, user_app_name]
+        supervisor_cmd = ['D:\College\DATN_Report_N4\Software\PC_Software\Windows\dist\MySupervisor.exe', decryptedFileRunPath, my_engine_name, user_app_name]
     elif platform.system() == 'Linux':
         supervisor_cmd = ['python3', 'MySupervisor.py', decryptedFileRunPath, my_engine_name, user_app_name]
 
@@ -643,7 +649,10 @@ def startAppHandle():
     wait_process_boot_in_timeout(supervisor_cmd, 5)
 
     check_and_terminate_by_name(user_app_name, my_supervisor_name, vendor_id, product_id, serial_number)
-    if is_process_dead(user_app_name):
+    
+    # Remove executable file
+    user_app_processes = []
+    if is_process_dead(user_app_name, user_app_processes):
         os.remove(decryptedFileRunPath)
     return ret
 
